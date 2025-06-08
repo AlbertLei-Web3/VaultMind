@@ -103,6 +103,13 @@ const TradingCalculator: React.FC = () => {
     ));
   };
 
+  // 安全地格式化数字 / Safely format numbers
+  const formatNumber = (value: any, decimals: number = 2): string => {
+    const num = Number(value);
+    if (isNaN(num)) return '0.00';
+    return num.toFixed(decimals);
+  };
+
   const columns = [
     {
       title: '仓位序号 / Position No.',
@@ -113,19 +120,19 @@ const TradingCalculator: React.FC = () => {
       title: '价格 / Price',
       dataIndex: 'price',
       key: 'price',
-      render: (price: number) => `$${price.toFixed(2)}`,
+      render: (price: any) => `$${formatNumber(price)}`,
     },
     {
       title: '数量 / Amount',
       dataIndex: 'amount',
       key: 'amount',
-      render: (amount: number) => amount.toFixed(4),
+      render: (amount: any) => formatNumber(amount, 4),
     },
     {
       title: '总价值 / Total Value',
       dataIndex: 'totalValue',
       key: 'totalValue',
-      render: (value: number) => `$${value.toFixed(2)}`,
+      render: (value: any) => `$${formatNumber(value)}`,
     },
   ];
 
@@ -229,8 +236,8 @@ const TradingCalculator: React.FC = () => {
             <Title level={4}>
               <WarningOutlined /> 风险提示 / Risk Warning
             </Title>
-            <p>预估爆仓价格 / Estimated Liquidation Price: ${liquidationPrice.toFixed(2)}</p>
-            <p>最大可用仓位 / Maximum Available Position: ${(form.getFieldValue('totalCapital') * form.getFieldValue('leverage')).toFixed(2)}</p>
+            <p>预估爆仓价格 / Estimated Liquidation Price: ${formatNumber(liquidationPrice)}</p>
+            <p>最大可用仓位 / Maximum Available Position: ${formatNumber(form.getFieldValue('totalCapital') * form.getFieldValue('leverage'))}</p>
           </Card>
         </>
       )}
