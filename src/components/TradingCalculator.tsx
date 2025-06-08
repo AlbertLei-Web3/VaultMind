@@ -16,7 +16,7 @@
  * - src/index.tsx (React 渲染入口 / React rendering entry)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Form, Input, Select, Button, Table, Card, Space, Typography, Divider } from 'antd';
 import { CalculatorOutlined, LineChartOutlined, WarningOutlined } from '@ant-design/icons';
 
@@ -24,115 +24,132 @@ const { Title } = Typography;
 const { Option } = Select;
 
 interface CalculatorForm {
-  totalCapital: number;
-  leverage: number;
-  initialPrice: number;
-  direction: 'long' | 'short';
-  additionalPositions: number;
-  additionalPositionAmount: number;
   maxLoss: number;
+  additionalPositionAmount: number;
+  additionalPositions: number;
+  direction: 'long' | 'short';
+  initialPrice: number;
+  leverage: number;
 }
 
 interface Position {
   key: number;
   price: number;
   amount: number;
-  totalValue: number;
-  pnl: number;
+  entryAmount: number;
+  totalAmount: number;
+  totalQty: number;
+  avgPrice: number;
+  cumulativeLoss: number;
 }
 
 const TradingCalculator: React.FC = () => {
   const [form] = Form.useForm();
   const [positions, setPositions] = useState<Position[]>([]);
-  const [liquidationPrice, setLiquidationPrice] = useState<number>(0);
 
-  // 计算最大可用仓位 / Calculate maximum available position
-  const calculateMaxPosition = (capital: number, leverage: number) => {
-    return capital * leverage;
+  // 安全地格式化数字 / Safely format numbers
+  const formatNumber = (value: any, decimals: number = 4): string => {
+    const num = Number(value);
+    if (isNaN(num)) return '0.0000';
+    return num.toFixed(decimals);
   };
 
-  // 计算爆仓价格 / Calculate liquidation price
-  const calculateLiquidationPrice = (initialPrice: number, direction: 'long' | 'short', leverage: number) => {
-    if (direction === 'long') {
-      return initialPrice * (1 - 1 / leverage);
-    } else {
-      return initialPrice * (1 + 1 / leverage);
-    }
-  };
-
-  // 生成仓位表格数据 / Generate position table data
+  // 计算每次补仓后的累计亏损和持仓均价 / Calculate cumulative loss and average price after each entry
   const generatePositions = (values: CalculatorForm) => {
-    const { totalCapital, leverage, initialPrice, direction, additionalPositions, additionalPositionAmount } = values;
-    const maxPosition = calculateMaxPosition(totalCapital, leverage);
-    const positions: Position[] = [];
+    const { maxLoss, additionalPositionAmount, additionalPositions, direction, initialPrice, leverage } = values;
+    const priceStep = 0.05; // 固定步长5% / Fixed price step 5%
+    const entryCount = additionalPositions + 1; // 包含初始开仓 / Include initial entry
+    const entryAmount = maxLoss * additionalPositionAmount; // 每次补仓金额 / Each entry amount
+    let positions: Position[] = [];
+    let totalAmount = 0; // 累计投入金额 / Cumulative entry amount
+    let totalQty = 0;    // 累计持仓数量 / Cumulative position quantity
+    let avgPrice = 0;    // 持仓均价 / Average position price
+    let cumulativeLoss = 0; // 累计亏损 / Cumulative loss
+    let price = initialPrice;
 
-    // 添加初始仓位 / Add initial position
-    positions.push({
-      key: 1,
-      price: initialPrice,
-      amount: maxPosition / initialPrice,
-      totalValue: maxPosition,
-      pnl: 0
-    });
-
-    // 添加补仓仓位 / Add additional positions
-    for (let i = 1; i <= additionalPositions; i++) {
-      const price = direction === 'long' 
-        ? initialPrice * (1 + i * 0.05) // 上涨5% / Increase by 5%
-        : initialPrice * (1 - i * 0.05); // 下跌5% / Decrease by 5%
-      
-      const amount = (additionalPositionAmount * maxPosition) / price;
+    for (let i = 0; i < entryCount; i++) {
+      // 计算本次补仓价格 / Calculate entry price
+      if (i > 0) {
+        price = direction === 'long'
+          ? price * (1 - priceStep)
+          : price * (1 + priceStep);
+      }
+      // 计算本次买入数量 / Calculate entry quantity
+      const qty = entryAmount / price;
+      totalAmount += entryAmount;
+      totalQty += qty;
+      avgPrice = totalAmount / totalQty;
+      // 计算累计亏损 / Calculate cumulative loss
+      // 做多：亏损 = (均价 - 当前价) * 总数量 / Long: loss = (avgPrice - price) * totalQty
+      // 做空：亏损 = (当前价 - 均价) * 总数量 / Short: loss = (price - avgPrice) * totalQty
+      cumulativeLoss = direction === 'long'
+        ? (avgPrice - price) * totalQty
+        : (price - avgPrice) * totalQty;
       positions.push({
         key: i + 1,
         price,
-        amount,
-        totalValue: amount * price,
-        pnl: 0
+        amount: qty,
+        entryAmount,
+        totalAmount,
+        totalQty,
+        avgPrice,
+        cumulativeLoss,
       });
     }
-
     setPositions(positions);
   };
 
   const onFinish = (values: CalculatorForm) => {
     generatePositions(values);
-    setLiquidationPrice(calculateLiquidationPrice(
-      values.initialPrice,
-      values.direction,
-      values.leverage
-    ));
-  };
-
-  // 安全地格式化数字 / Safely format numbers
-  const formatNumber = (value: any, decimals: number = 2): string => {
-    const num = Number(value);
-    if (isNaN(num)) return '0.00';
-    return num.toFixed(decimals);
   };
 
   const columns = [
     {
-      title: '仓位序号 / Position No.',
+      title: '序号 / No.',
       dataIndex: 'key',
       key: 'key',
     },
     {
-      title: '价格 / Price',
+      title: '开仓价格 / Entry Price',
       dataIndex: 'price',
       key: 'price',
-      render: (price: any) => `$${formatNumber(price)}`,
+      render: (price: any) => `$${formatNumber(price, 5)}`,
     },
     {
-      title: '数量 / Amount',
+      title: '本次开仓金额 / Entry Amount',
+      dataIndex: 'entryAmount',
+      key: 'entryAmount',
+      render: (amount: any) => `$${formatNumber(amount, 2)}`,
+    },
+    {
+      title: '本次开仓数量 / Entry Qty',
       dataIndex: 'amount',
       key: 'amount',
-      render: (amount: any) => formatNumber(amount, 4),
+      render: (qty: any) => formatNumber(qty, 4),
     },
     {
-      title: '总价值 / Total Value',
-      dataIndex: 'totalValue',
-      key: 'totalValue',
-      render: (value: any) => `$${formatNumber(value)}`,
+      title: '累计持仓金额 / Total Amount',
+      dataIndex: 'totalAmount',
+      key: 'totalAmount',
+      render: (amount: any) => `$${formatNumber(amount, 2)}`,
+    },
+    {
+      title: '累计持仓数量 / Total Qty',
+      dataIndex: 'totalQty',
+      key: 'totalQty',
+      render: (qty: any) => formatNumber(qty, 4),
+    },
+    {
+      title: '持仓均价 / Avg Price',
+      dataIndex: 'avgPrice',
+      key: 'avgPrice',
+      render: (price: any) => `$${formatNumber(price, 5)}`,
+    },
+    {
+      title: '累计亏损 / Cumulative Loss',
+      dataIndex: 'cumulativeLoss',
+      key: 'cumulativeLoss',
+      render: (loss: any) => `$${formatNumber(loss, 2)}`,
     },
   ];
 
@@ -141,7 +158,6 @@ const TradingCalculator: React.FC = () => {
       <Title level={2}>
         <CalculatorOutlined /> 交易计算器 / Trading Calculator
       </Title>
-      
       <Card>
         <Form
           form={form}
@@ -151,33 +167,33 @@ const TradingCalculator: React.FC = () => {
             leverage: 3,
             additionalPositions: 3,
             additionalPositionAmount: 0.5,
+            direction: 'long',
+            initialPrice: 1,
+            maxLoss: 100,
           }}
         >
           <Space direction="vertical" style={{ width: '100%' }}>
             <Form.Item
-              label="当前总资金（USDT）/ Total Capital (USDT)"
-              name="totalCapital"
-              rules={[{ required: true, message: '请输入总资金 / Please input total capital' }]}
+              label="最大允许亏损金额 / Maximum Loss"
+              name="maxLoss"
+              rules={[{ required: true, message: '请输入最大亏损金额 / Please input maximum loss' }]}
             >
               <Input type="number" prefix="$" />
             </Form.Item>
-
             <Form.Item
-              label="杠杆倍数 / Leverage"
-              name="leverage"
-              rules={[{ required: true, message: '请输入杠杆倍数 / Please input leverage' }]}
+              label="每次补仓金额比例 / Additional Position Ratio (相对于最大亏损金额 / Relative to Max Loss)"
+              name="additionalPositionAmount"
+              rules={[{ required: true, message: '请输入补仓比例 / Please input additional position ratio' }]}
+            >
+              <Input type="number" step="0.01" />
+            </Form.Item>
+            <Form.Item
+              label="计划补仓次数 / Additional Positions"
+              name="additionalPositions"
+              rules={[{ required: true, message: '请输入补仓次数 / Please input number of additional positions' }]}
             >
               <Input type="number" />
             </Form.Item>
-
-            <Form.Item
-              label="初始开仓价格 / Initial Entry Price"
-              name="initialPrice"
-              rules={[{ required: true, message: '请输入开仓价格 / Please input entry price' }]}
-            >
-              <Input type="number" prefix="$" />
-            </Form.Item>
-
             <Form.Item
               label="开仓方向 / Position Direction"
               name="direction"
@@ -188,31 +204,20 @@ const TradingCalculator: React.FC = () => {
                 <Option value="short">做空 / Short</Option>
               </Select>
             </Form.Item>
-
             <Form.Item
-              label="计划补仓次数 / Additional Positions"
-              name="additionalPositions"
-              rules={[{ required: true, message: '请输入补仓次数 / Please input number of additional positions' }]}
+              label="初始开仓价格 / Initial Entry Price"
+              name="initialPrice"
+              rules={[{ required: true, message: '请输入开仓价格 / Please input entry price' }]}
+            >
+              <Input type="number" prefix="$" step="0.00001" />
+            </Form.Item>
+            <Form.Item
+              label="杠杆倍数 / Leverage"
+              name="leverage"
+              rules={[{ required: true, message: '请输入杠杆倍数 / Please input leverage' }]}
             >
               <Input type="number" />
             </Form.Item>
-
-            <Form.Item
-              label="每次补仓金额比例 / Additional Position Ratio"
-              name="additionalPositionAmount"
-              rules={[{ required: true, message: '请输入补仓比例 / Please input additional position ratio' }]}
-            >
-              <Input type="number" step="0.1" />
-            </Form.Item>
-
-            <Form.Item
-              label="最大允许亏损金额 / Maximum Loss"
-              name="maxLoss"
-              rules={[{ required: true, message: '请输入最大亏损金额 / Please input maximum loss' }]}
-            >
-              <Input type="number" prefix="$" />
-            </Form.Item>
-
             <Form.Item>
               <Button type="primary" htmlType="submit" icon={<CalculatorOutlined />}>
                 计算 / Calculate
@@ -221,23 +226,21 @@ const TradingCalculator: React.FC = () => {
           </Space>
         </Form>
       </Card>
-
       {positions.length > 0 && (
         <>
           <Divider />
           <Card>
             <Title level={4}>
-              <LineChartOutlined /> 仓位监控表格 / Position Monitoring Table
+              <LineChartOutlined /> 补仓明细表 / Position Details Table
             </Title>
             <Table columns={columns} dataSource={positions} pagination={false} />
           </Card>
-
           <Card style={{ marginTop: '16px' }}>
             <Title level={4}>
               <WarningOutlined /> 风险提示 / Risk Warning
             </Title>
-            <p>预估爆仓价格 / Estimated Liquidation Price: ${formatNumber(liquidationPrice)}</p>
-            <p>最大可用仓位 / Maximum Available Position: ${formatNumber(form.getFieldValue('totalCapital') * form.getFieldValue('leverage'))}</p>
+            <p>本表格假设每次补仓后价格都向极端不利方向移动，最终累计亏损等于最大允许亏损金额。</p>
+            <p>This table assumes that after each entry, the price moves in the most unfavorable direction, and the cumulative loss eventually equals the maximum allowed loss.</p>
           </Card>
         </>
       )}
